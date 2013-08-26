@@ -12,7 +12,8 @@ from django.shortcuts import render
 
 from kitsune.search.es_utils import (
     get_doctype_stats, get_indexes, delete_index, ES_EXCEPTIONS,
-    get_indexable, CHUNK_SIZE, recreate_index, write_index, read_index)
+    get_indexable, CHUNK_SIZE, recreate_indexes, write_index, read_index,
+    all_read_indexes, all_write_indexes)
 from kitsune.search.models import Record, get_mapping_types
 from kitsune.search.tasks import OUTSTANDING_INDEX_CHUNKS, index_chunk_task
 from kitsune.search.utils import chunked, create_batch_id
@@ -46,22 +47,28 @@ class DeleteError(Exception):
 
 def handle_delete(request):
     """Deletes an index"""
-    index_to_delete = request.POST['delete_index']
+    indexes_to_delete = [name.replace('check_', '')
+                         for name in request.POST.keys()
+                         if name.startswith('check_')]
 
-    # Rule 1: Has to start with the ES_INDEX_PREFIX.
-    if not index_to_delete.startswith(settings.ES_INDEX_PREFIX):
-        raise DeleteError('"%s" is not a valid index name.' % index_to_delete)
+    # Validate all indexes
+    for index in indexes_to_delete:
+        # Rule 1: Has to start with the ES_INDEX_PREFIX.
+        if not index.startswith(settings.ES_INDEX_PREFIX):
+            raise DeleteError('"%s" is not a valid index name.' % index)
 
-    # Rule 2: Must be an existing index.
-    indexes = [name for name, count in get_indexes()]
-    if index_to_delete not in indexes:
-        raise DeleteError('"%s" does not exist.' % index_to_delete)
+        # Rule 2: Must be an existing index.
+        indexes = [name for name, count in get_indexes()]
+        if index not in indexes:
+            raise DeleteError('"%s" does not exist.' % index)
 
-    # Rule 3: Don't delete the read index.
-    if index_to_delete == read_index():
-        raise DeleteError('"%s" is the read index.' % index_to_delete)
+        # Rule 3: Don't delete the default read index.
+        if index == read_index('default'):
+            raise DeleteError('"%s" is the default read index.' % index)
 
-    delete_index(index_to_delete)
+    # All indexes are ok to delete, delete all of them:
+    for index in indexes_to_delete:
+        delete_index(index)
 
     return HttpResponseRedirect(request.path)
 
@@ -118,7 +125,7 @@ def handle_reindex(request):
         # The previous lines do a lot of work and take some time to
         # execute.  So we wait until here to wipe and rebuild the
         # index. That reduces the time that there is no index by a little.
-        recreate_index()
+        recreate_indexes()
 
     chunks_count = len(chunks)
 
@@ -129,7 +136,7 @@ def handle_reindex(request):
         log.warning('Redis not running. Can\'t denote outstanding tasks.')
 
     for chunk in chunks:
-        index_chunk_task.delay(write_index(), batch_id, chunk)
+        index_chunk_task.delay(batch_id, chunk)
 
     return HttpResponseRedirect(request.path)
 
@@ -142,22 +149,19 @@ def search(request):
     error_messages = []
     stats = {}
 
-    reset_requested = 'reset' in request.POST
-    if reset_requested:
+    if 'reset' in request.POST:
         try:
             return handle_reset(request)
         except ReindexError, e:
             error_messages.append(u'Error: %s' % e.message)
 
-    reindex_requested = 'reindex' in request.POST
-    if reindex_requested:
+    if 'reindex' in request.POST:
         try:
             return handle_reindex(request)
         except ReindexError, e:
             error_messages.append(u'Error: %s' % e.message)
 
-    delete_requested = 'delete_index' in request.POST
-    if delete_requested:
+    if 'delete_index' in request.POST:
         try:
             return handle_delete(request)
         except DeleteError as e:
@@ -179,15 +183,19 @@ def search(request):
     except requests.exceptions.RequestException:
         pass
 
-    try:
-        stats = get_doctype_stats(read_index())
-    except ES_EXCEPTIONS:
-        pass
+    stats = {}
+    for index in all_read_indexes():
+        try:
+            stats[index] = get_doctype_stats(index)
+        except ES_EXCEPTIONS:
+            stats[index] = None
 
-    try:
-        write_stats = get_doctype_stats(write_index())
-    except ES_EXCEPTIONS:
-        pass
+    write_stats = {}
+    for index in all_write_indexes():
+        try:
+            write_stats[index] = get_doctype_stats(index)
+        except ES_EXCEPTIONS:
+            write_stats[index] = None
 
     try:
         indexes = get_indexes()
@@ -211,8 +219,8 @@ def search(request):
          'doctype_stats': stats,
          'doctype_write_stats': write_stats,
          'indexes': indexes,
-         'read_index': read_index(),
-         'write_index': write_index(),
+         'read_indexes': all_read_indexes,
+         'write_indexes': all_write_indexes,
          'error_messages': error_messages,
          'recent_records': recent_records,
          'outstanding_chunks': outstanding_chunks,
