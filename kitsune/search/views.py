@@ -129,13 +129,8 @@ def search(request, template=None):
 
     # We use a regular S here because we want to search across
     # multiple doctypes.
-    indexes = es_utils.indexes_for_doctypes([
-        'wiki_document',
-        'questions_question',
-        'forums_thread',
-    ])
     searcher = (AnalyzerS().es(urls=settings.ES_URLS)
-                           .indexes(*indexes))
+                .indexes(es_utils.read_index('default')))
 
     wiki_f = F(model='wiki_document')
     question_f = F(model='questions_question')

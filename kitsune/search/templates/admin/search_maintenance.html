@@ -25,10 +25,10 @@
     .errorspan {
       background: #ffc;
       border: 1px solid red;
-      padding: 1px;
+      padding: 1.5px;
     }
     .errorspan img {
-      transform: translate(0,4px);
+      transform: translate(0,-1px);
     }
   </style>
 {% endblock %}
@@ -228,12 +228,13 @@
                {% if not settings.ES_LIVE_INDEXING or outstanding_chunks %}disabled{% endif %}>
       </form>
     {% endif %}
-    <h2>DELETE existing index, recreate it and reindex</h2>
+
+    <h2>DELETE existing index group's write index, recreate it and reindex</h2>
     <p>
-      This <strong>DELETES</strong> the existing WRITE index,
-      recreates it with the mappings, and indexes into the new index.
-      You should have to do this only when the search mapping changes
-      or when setting up the site for the first time.
+      This <strong>DELETES</strong> the existing WRITE index for a
+      group, recreates it with the mappings, and indexes into the new
+      index. You should have to do this only when the search mapping
+      changes or when setting up the site for the first time.
     </p>
 
     {% if read_indexes == write_indexes %}
@@ -244,24 +245,36 @@
     {% endif %}
 
     <form method="POST">
-      {% for index in write_indexes %}
-        <input id="check_{{ index }}" type="checkbox" name="check_{{ index }}" value="yes"
-               {% if not index in read_indexes %}checked{% endif %}>
-        <label for="check_{{ index }}">{{ index }}</label>
-        {% if index in read_indexes and index in write_indexes %}
-          <span class="errorspan">
-            <img src="/static/admin/img/icon_error.gif" />
-            This is a read index!
-          </span>
-        {% endif %}
-        <br/>
-      {% endfor %}
-
-      <br/>
+      <table>
+        <tr>
+          <th></th>
+          <th>Group</th>
+          <th>Read Index</th>
+          <th>Write Index</th>
+        </tr>
+        {% for group, group_read_index, group_write_index in index_group_data %}
+          <tr>
+            <td>
+              <input id="check_{{ group }}" type="checkbox" name="check_{{ group }}" value="yes"
+                     {% if group_read_index != group_write_index %}checked{% endif %}>
+            </td>
+            <td><label for="check_{{ group }}">{{ group }}</label></td>
+            <td>{{ group_read_index }}</td>
+            <td>{{ group_write_index }}</td>
+            <td>
+              {% if group_read_index == group_write_index %}
+                <span class="errorspan">
+                  <img src="/static/admin/img/icon_error.gif" />
+                  This group's write index is a read index!
+                </span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </table>
 
       {% csrf_token %}
-      <input type="hidden" name="delete_index" value="1">
-      <input class="DANGER" type="submit" name="reindex"
+      <input class="DANGER" type="submit" name="recreate_index"
              value="DELETE selected indexes and reindex"
              {% if not settings.ES_LIVE_INDEXING or outstanding_chunks %}disabled{% endif %}>
     </form>

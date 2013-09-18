@@ -13,7 +13,7 @@ from django.shortcuts import render
 from kitsune.search.es_utils import (
     get_doctype_stats, get_indexes, delete_index, ES_EXCEPTIONS,
     get_indexable, CHUNK_SIZE, recreate_indexes, write_index, read_index,
-    all_read_indexes, all_write_indexes)
+    all_read_indexes, all_write_indexes, indexes_for_doctypes)
 from kitsune.search.models import Record, get_mapping_types
 from kitsune.search.tasks import OUTSTANDING_INDEX_CHUNKS, index_chunk_task
 from kitsune.search.utils import chunked, create_batch_id
@@ -47,28 +47,25 @@ class DeleteError(Exception):
 
 def handle_delete(request):
     """Deletes an index"""
-    indexes_to_delete = [name.replace('check_', '')
-                         for name in request.POST.keys()
-                         if name.startswith('check_')]
+    index_to_delete = request.POST.get('delete_index')
+    es_indexes = [name for name in get_indexes()]
 
-    # Validate all indexes
-    for index in indexes_to_delete:
-        # Rule 1: Has to start with the ES_INDEX_PREFIX.
-        if not index.startswith(settings.ES_INDEX_PREFIX):
-            raise DeleteError('"%s" is not a valid index name.' % index)
+    # Rule 1: Has to start with the ES_INDEX_PREFIX.
+    if not index_to_delete.startswith(settings.ES_INDEX_PREFIX):
+        raise DeleteError('"%s" is not a valid index name.' % index_to_delete)
 
-        # Rule 2: Must be an existing index.
-        indexes = [name for name, count in get_indexes()]
-        if index not in indexes:
-            raise DeleteError('"%s" does not exist.' % index)
+    # Rule 2: Must be an existing index.
+    if index_to_delete not in es_indexes:
+        raise DeleteError('"%s" does not exist.' % index_to_delete)
 
-        # Rule 3: Don't delete the default read index.
-        if index == read_index('default'):
-            raise DeleteError('"%s" is the default read index.' % index)
+    # Rule 3: Don't delete the default read index.
+    # TODO: When the critical index exists, this should be "Don't
+    # delete the critical read index."
+    if index_to_delete == read_index('default'):
+        raise DeleteError('"%s" is the default read index.' % index_to_delete)
 
-    # All indexes are ok to delete, delete all of them:
-    for index in indexes_to_delete:
-        delete_index(index)
+    # The index is ok to delete
+    delete_index(index_to_delete)
 
     return HttpResponseRedirect(request.path)
 
@@ -77,22 +74,12 @@ class ReindexError(Exception):
     pass
 
 
-def handle_reindex(request):
-    """Caculates and kicks off indexing tasks"""
-    # This is truthy if the user wants us to delete and recreate
-    # the index first.
-    delete_index_first = bool(request.POST.get('delete_index'))
+def reindex_with_scoreboard(mapping_types):
+    """Reindex all instances of a given mapping type with celery tasks.
 
-    if delete_index_first:
-        # Coming from the delete form, so we reindex all models.
-        mapping_types_to_index = None
-    else:
-        # Coming from the reindex form, so we reindex whatever we're
-        # told.
-        mapping_types_to_index = [name.replace('check_', '')
-                                  for name in request.POST.keys()
-                                  if name.startswith('check_')]
-
+    This will use Redis to keep track of outstanding tasks so nothing
+    gets screwed up by two jobs running at once.
+    """
     # TODO: If this gets fux0rd, then it's possible this could be
     # non-zero and we really want to just ignore it. Need the ability
     # to ignore it.
@@ -117,15 +104,9 @@ def handle_reindex(request):
     # Break up all the things we want to index into chunks. This
     # chunkifies by class then by chunk size.
     chunks = []
-    for cls, indexable in get_indexable(mapping_types=mapping_types_to_index):
+    for cls, indexable in get_indexable(mapping_types=mapping_types):
         chunks.extend(
             (cls, chunk) for chunk in chunked(indexable, CHUNK_SIZE))
-
-    if delete_index_first:
-        # The previous lines do a lot of work and take some time to
-        # execute.  So we wait until here to wipe and rebuild the
-        # index. That reduces the time that there is no index by a little.
-        recreate_indexes()
 
     chunks_count = len(chunks)
 
@@ -136,7 +117,30 @@ def handle_reindex(request):
         log.warning('Redis not running. Can\'t denote outstanding tasks.')
 
     for chunk in chunks:
-        index_chunk_task.delay(batch_id, chunk)
+        index = chunk[0].get_index()
+        index_chunk_task.delay(index, batch_id, chunk)
+
+
+def handle_recreate_index(request):
+    """Deletes an index, recreates it, and reindexes it."""
+    groups = [name.replace('check_', '')
+              for name in request.POST.keys()
+              if name.startswith('check_')]
+
+    indexes = [write_index(group) for group in groups]
+    recreate_indexes(indexes=indexes)
+    mapping_types = [type for type in get_mapping_types()
+                     if type.get_index_group() in groups]
+    reindex_with_scoreboard(mapping_types)
+
+
+def handle_reindex(request):
+    """Caculates and kicks off indexing tasks"""
+    mapping_types = [name.replace('check_', '')
+                     for name in request.POST.keys()
+                     if name.startswith('check_')]
+
+    reindex_with_scoreboard(mapping_types)
 
     return HttpResponseRedirect(request.path)
 
@@ -158,6 +162,12 @@ def search(request):
     if 'reindex' in request.POST:
         try:
             return handle_reindex(request)
+        except ReindexError, e:
+            error_messages.append(u'Error: %s' % e.message)
+
+    if 'recreate_index' in request.POST:
+        try:
+            return handle_recreate_index(request)
         except ReindexError, e:
             error_messages.append(u'Error: %s' % e.message)
 
@@ -211,6 +221,12 @@ def search(request):
 
     recent_records = Record.uncached.order_by('-starttime')[:20]
 
+    index_groups = set(settings.ES_INDEXES.keys())
+    index_groups |= set(settings.ES_WRITE_INDEXES.keys())
+
+    index_group_data = [[group, read_index(group), write_index(group)]
+                        for group in index_groups]
+
     return render(
         request,
         'admin/search_maintenance.html',
@@ -219,12 +235,16 @@ def search(request):
          'doctype_stats': stats,
          'doctype_write_stats': write_stats,
          'indexes': indexes,
+         'index_groups': index_groups,
+         'index_group_data': index_group_data,
          'read_indexes': all_read_indexes,
          'write_indexes': all_write_indexes,
          'error_messages': error_messages,
          'recent_records': recent_records,
          'outstanding_chunks': outstanding_chunks,
          'now': datetime.now(),
+         'read_index': read_index,
+         'write_index': write_index,
          })
 
 

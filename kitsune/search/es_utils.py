@@ -18,27 +18,25 @@ from kitsune.search.utils import chunked
 # tests want to be able to dynamically change settings at run time,
 # which isn't possible if these are constants.
 
-def read_index(name):
-    """Calculate the read index name."""
+def read_index(group):
+    """Gets the name of the read index for a group."""
     return (u'%s_%s' % (settings.ES_INDEX_PREFIX,
-                        settings.ES_INDEXES[name]))
+                        settings.ES_INDEXES[group]))
 
 
-def write_index(name):
-    """Calculate the write index name."""
+def write_index(group):
+    """Gets the name of the write index for a group."""
     return (u'%s_%s' % (settings.ES_INDEX_PREFIX,
-                        settings.ES_WRITE_INDEXES[name]))
+                        settings.ES_WRITE_INDEXES[group]))
 
 
 def all_read_indexes():
-    return [read_index(name) for name in settings.ES_INDEXES.keys()]
+    return [read_index(group) for group in settings.ES_INDEXES.keys()]
 
 
 def all_write_indexes():
-    return [write_index(name) for name in settings.ES_WRITE_INDEXES.keys()]
+    return [write_index(group) for group in settings.ES_WRITE_INDEXES.keys()]
 
-# This is the unified elastic search doctype.
-SUMO_DOCTYPE = u'sumodoc'
 
 # The number of things in a chunk. This is for parallel indexing via
 # the admin.
@@ -112,7 +110,7 @@ class Sphilastic(S, AnalyzerMixin):
     def get_indexes(self):
         # SphilasticUnified is a searcher and so it's _always_ used in
         # a read context. Therefore, we always return the read index.
-        return [read_index(self.type.get_index_name())]
+        return [read_index(self.type.get_index_group())]
 
     def process_query_mlt(self, key, val, action):
         """Add support for a more like this query to our S.
@@ -133,6 +131,8 @@ class AnalyzerS(UntypedS, AnalyzerMixin):
 
     This differs from Sphilastic in that this is a plain ES S object,
     not based on Django.
+
+    This just exists as a way to mix together UntypedS and AnalyzerMixin.
     """
     pass
 
@@ -142,8 +142,8 @@ def get_mappings(index):
 
     from kitsune.search.models import get_mapping_types
     for cls in get_mapping_types():
-        name = cls.get_index_name()
-        if index == write_index(name) or index == read_index(name):
+        group = cls.get_index_group()
+        if index == write_index(group) or index == read_index(group):
             mappings[cls.get_mapping_type_name()] = cls.get_mapping()
 
     return mappings
@@ -151,6 +151,7 @@ def get_mappings(index):
 
 def get_all_mappings():
     mappings = {}
+
     from kitsune.search.models import get_mapping_types
     for cls in get_mapping_types():
         mappings[cls.get_mapping_type_name()] = cls.get_mapping()
@@ -285,12 +286,14 @@ def get_analysis():
     }
 
 
-def recreate_indexes(es=None):
+def recreate_indexes(es=None, indexes=None):
     """Deletes write index if it's there and creates a new one"""
     if es is None:
         es = get_es()
+    if indexes is None:
+        indexes = all_write_indexes()
 
-    for index in all_write_indexes():
+    for index in indexes:
         delete_index(index)
 
         # There should be no mapping-conflict race here since the index doesn't
@@ -398,8 +401,13 @@ def es_reindex_cmd(percent=100, delete=False, mapping_types=None,
     """
     es = get_es()
 
+    if mapping_types is None:
+        indexes = all_write_indexes()
+    else:
+        indexes = indexes_for_doctypes(mapping_types)
+
     need_delete = False
-    for index in all_write_indexes():
+    for index in indexes:
         try:
             # This is used to see if the index exists.
             get_doctype_stats(index)
@@ -412,8 +420,8 @@ def es_reindex_cmd(percent=100, delete=False, mapping_types=None,
         return
 
     if delete:
-        log.info('wiping and recreating %s...', ', '.join(all_write_indexes()))
-        recreate_indexes(es=es)
+        log.info('wiping and recreating %s...', ', '.join(indexes))
+        recreate_indexes(es, indexes)
 
     if criticalmass:
         # The critical mass is defined as the entire KB plus the most
@@ -441,7 +449,7 @@ def es_reindex_cmd(percent=100, delete=False, mapping_types=None,
     old_refreshes = {}
     # We're doing a lot of indexing, so we get the refresh_interval of
     # the index currently, then nix refreshing. Later we'll restore it.
-    for index in all_write_indexes():
+    for index in indexes:
         old_refreshes[index] = (get_index_settings(index)
                                 .get('index.refresh_interval', '1s'))
         # Disable automatic refreshing
@@ -809,4 +817,4 @@ def es_query_with_analyzer(query, locale):
 def indexes_for_doctypes(doctype):
     # Import locally to avoid circular import.
     from kitsune.search.models import get_mapping_types
-    return [d.get_index() for d in get_mapping_types(doctype)]
+    return set(d.get_index() for d in get_mapping_types(doctype))

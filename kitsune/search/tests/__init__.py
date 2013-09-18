@@ -47,17 +47,19 @@ class ElasticTestCase(TestCase):
         self.teardown_indexes()
 
     def refresh(self, run_tasks=True):
+        es = get_es()
+
+        if run_tasks:
+            # Any time we're doing a refresh, we're making sure that
+            # the index is ready to be queried. Given that, it's
+            # almost always the case that we want to run all the
+            # generated tasks, then refresh.
+            generate_tasks()
+
         for index in es_utils.all_write_indexes():
-            if run_tasks:
-                # Any time we're doing a refresh, we're making sure that
-                # the index is ready to be queried. Given that, it's
-                # almost always the case that we want to run all the
-                # generated tasks, then refresh.
-                generate_tasks()
+            es.refresh(index)
 
-            get_es().refresh(index)
-
-        get_es().health(wait_for_status='yellow')
+        es.health(wait_for_status='yellow')
 
     def reindex_and_refresh(self):
         """Reindexes anything in the db"""

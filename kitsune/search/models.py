@@ -98,10 +98,10 @@ class SearchMappingType(MappingType, Indexable):
 
     @classmethod
     def get_index(cls):
-        return es_utils.write_index(cls.get_index_name())
+        return es_utils.write_index(cls.get_index_group())
 
     @classmethod
-    def get_index_name(cls):
+    def get_index_group(cls):
         return 'default'
 
     @classmethod
