@@ -287,7 +287,12 @@ def get_analysis():
 
 
 def recreate_indexes(es=None, indexes=None):
-    """Deletes write index if it's there and creates a new one"""
+    """Deletes indexes and recreates them.
+
+    :arg es: An ES object to use. Defaults to calling `get_es()`.
+    :arg indexes: A list of indexes to recreate. Defaults to all write
+        indexes.
+    """
     if es is None:
         es = get_es()
     if indexes is None:

@@ -129,8 +129,8 @@ def handle_recreate_index(request):
 
     indexes = [write_index(group) for group in groups]
     recreate_indexes(indexes=indexes)
-    mapping_types = [type for type in get_mapping_types()
-                     if type.get_index_group() in groups]
+    mapping_types = [mt for mt in get_mapping_types()
+                     if mt.get_index_group() in groups]
     reindex_with_scoreboard(mapping_types)
 
 
@@ -156,19 +156,19 @@ def search(request):
     if 'reset' in request.POST:
         try:
             return handle_reset(request)
-        except ReindexError, e:
+        except ReindexError as e:
             error_messages.append(u'Error: %s' % e.message)
 
     if 'reindex' in request.POST:
         try:
             return handle_reindex(request)
-        except ReindexError, e:
+        except ReindexError as e:
             error_messages.append(u'Error: %s' % e.message)
 
     if 'recreate_index' in request.POST:
         try:
             return handle_recreate_index(request)
-        except ReindexError, e:
+        except ReindexError as e:
             error_messages.append(u'Error: %s' % e.message)
 
     if 'delete_index' in request.POST:
