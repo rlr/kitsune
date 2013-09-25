@@ -74,7 +74,7 @@ class ReindexError(Exception):
     pass
 
 
-def reindex_with_scoreboard(mapping_types):
+def reindex_with_scoreboard(mapping_type_names):
     """Reindex all instances of a given mapping type with celery tasks.
 
     This will use Redis to keep track of outstanding tasks so nothing
@@ -104,7 +104,7 @@ def reindex_with_scoreboard(mapping_types):
     # Break up all the things we want to index into chunks. This
     # chunkifies by class then by chunk size.
     chunks = []
-    for cls, indexable in get_indexable(mapping_types=mapping_types):
+    for cls, indexable in get_indexable(mapping_types=mapping_type_names):
         chunks.extend(
             (cls, chunk) for chunk in chunked(indexable, CHUNK_SIZE))
 
@@ -129,18 +129,22 @@ def handle_recreate_index(request):
 
     indexes = [write_index(group) for group in groups]
     recreate_indexes(indexes=indexes)
-    mapping_types = [mt for mt in get_mapping_types()
-                     if mt.get_index_group() in groups]
-    reindex_with_scoreboard(mapping_types)
+
+    mapping_types_names = [mt.get_mapping_type_name()
+                           for mt in get_mapping_types()
+                           if mt.get_index_group() in groups]
+    reindex_with_scoreboard(mapping_types_names)
+
+    return HttpResponseRedirect(request.path)
 
 
 def handle_reindex(request):
     """Caculates and kicks off indexing tasks"""
-    mapping_types = [name.replace('check_', '')
-                     for name in request.POST.keys()
-                     if name.startswith('check_')]
+    mapping_type_names = [name.replace('check_', '')
+                          for name in request.POST.keys()
+                          if name.startswith('check_')]
 
-    reindex_with_scoreboard(mapping_types)
+    reindex_with_scoreboard(mapping_type_names)
 
     return HttpResponseRedirect(request.path)
 
