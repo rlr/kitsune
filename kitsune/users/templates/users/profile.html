@@ -57,9 +57,10 @@
           <div id="deactivated-msg">{{ _('This user has been deactivated.') }}</div>
         {% endif %}
       {% endif %}
-      {% if num_answers or num_questions or num_solutions or num_documents %}
+      {% if True or num_answers or num_questions or num_solutions or num_documents %}
         <section class="contributions">
-          <h2>Contributions</h2>
+          <h2>{{ _('Contributions') }}</h2>
+          <div id="contribution-graph" data-url="{{ url('users.api.contributions', profile.user.id) }}"></div>
           <ul>
             {% if num_questions %}
               <li>
@@ -87,6 +88,22 @@
                 </a>
               </li>
             {% endif %}
+          </ul>
+        </section>
+      {% endif %}
+      {% if profile.bio %}
+        <section class="bio">
+          <h2>{{ _('About {user}')|f(user=display_name(profile.user)) }}</h2>
+          {{ profile.bio|wiki_to_html(nofollow=True) }}
+        </section>
+      {% endif %}
+      {% if groups %}
+        <section class="groups">
+          <h2>{{ _("{user}'s Groups")|f(user=display_name(profile.user)) }}</h2>
+          <ul>
+            {% for g in groups %}
+              <li>{{ group_link(g) }}</li>
+            {% endfor %}
           </ul>
         </section>
       {% endif %}
@@ -127,22 +144,6 @@
           </ul>
         </section>
       {% endif %}
-      {% if profile.bio %}
-        <section class="bio">
-          <h2>{{ _('About {user}')|f(user=display_name(profile.user)) }}</h2>
-          {{ profile.bio|wiki_to_html(nofollow=True) }}
-        </section>
-      {% endif %}
-      {% if groups %}
-        <section class="groups">
-          <h2>{{ _("{user}'s Groups")|f(user=display_name(profile.user)) }}</h2>
-          <ul>
-            {% for g in groups %}
-              <li>{{ group_link(g) }}</li>
-            {% endfor %}
-          </ul>
-        </section>
-      {% endif %}
       {% set awards = user_awards(profile.user) %}
       {% if awards %}
         <section class="badges cf">
@@ -153,4 +154,44 @@
       {% endif %}
     </article>
   </div>
+{% endblock %}
+
+{% block footer_script %}
+<script src='https://rawgithub.com/mythmon/kitsune/carafe/kitsune/sumo/static/js/libs/d3.js'></script>
+<script src='https://rawgithub.com/mythmon/kitsune/carafe/kitsune/sumo/static/js/libs/d3.chart.js'></script>
+<script src='https://rawgithub.com/mythmon/kitsune/carafe/kitsune/sumo/static/js/graphs/utils.js'></script>
+<script src='https://rawgithub.com/mythmon/kitsune/carafe/kitsune/sumo/static/js/graphs/base.js'></script>
+<script src='https://rawgithub.com/mythmon/kitsune/carafe/kitsune/sumo/static/js/graphs/calendarheatmap.js'></script>
+<script>
+  var G = k.graph;
+
+  var selector = '#contribution-graph';
+  var $graph = $(selector);
+  var histogramData = [];
+  var now = new Date();
+  var dataStart = new Date(now.getFullYear() - 1, now.getMonth(), now.getDay());
+  var date;
+
+  $.ajax({
+    dataType: 'json',
+    url: $graph.data('url'),
+    success: function(responseData) {
+      var formatter = G.format('<strong><big>{1}</big></strong><br/>' +
+        'Support Forum: <strong>{0.answers}</strong><br/>' +
+        'KB: <strong>{0.kb_edits}</strong><br/>' +
+        'L10n: <strong>{0.l10n_edits}</strong><br/>' +
+        'Army of Awesome: <strong>{0.tweets}</strong><br/>',
+        G.ident, G.compose(function(item) { return new Date(parseInt(item.timestamp)); }, d3.time.format('%b %d')));
+
+      var chart = d3.select(selector)
+          .chart('CalendarHeatMap')
+          .cellGap(2)
+          .tooltipFormat(formatter)
+          .date(function(item) { return new Date(parseInt(item.timestamp)); } )
+          .heat(G.get('contributions'));
+
+      chart.draw(responseData);
+    }
+  });
+</script>
 {% endblock %}
