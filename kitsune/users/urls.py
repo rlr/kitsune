@@ -11,6 +11,7 @@ from kitsune.users.models import Profile
 # API patterns. All start with /users/api.
 api_patterns = patterns('',
     url(r'^usernames', api.usernames, name='users.api.usernames'),
+    url(r'^contributions/(?P<user_id>\d+)', api.contributions, name='users.api.contributions'),
 )
 
 # These will all start with /user/<user_id>/
