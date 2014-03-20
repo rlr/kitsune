@@ -1,3 +1,4 @@
+import json
 import logging
 import time
 from datetime import datetime, timedelta
@@ -1040,6 +1041,22 @@ class Revision(ModelBase):
             return older_revs[0]
         except IndexError:
             return None
+
+    def to_baloo(self):
+        return json.dumps({
+            'email': self.creator.email,
+            'datetime': self.created.isoformat(),
+            'canonical': 'https://support.mozilla.org' + self.get_absolute_url(),
+            'type': 'sumo-kb-revision',
+            'source': 'sumo',
+            'extra': {
+                'type': 'kb-revision',
+                'locale': self.document.locale,
+                'article': self.document.id,
+                'id': self.id,
+                'slug': self.document.slug,
+            },
+        })
 
 
 class HelpfulVote(ModelBase):

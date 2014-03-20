@@ -1,4 +1,5 @@
 import datetime
+import json
 
 from django.contrib.auth.models import User
 from django.db import models
@@ -152,3 +153,19 @@ class Post(ModelBase):
     @property
     def content_parsed(self):
         return wiki_to_html(self.content)
+
+    def to_baloo(self):
+        return json.dumps({
+            'email': self.creator.email,
+            'datetime': self.created.isoformat(),
+            'canonical': 'https://support.mozilla.org' + self.get_absolute_url(),
+            'type': 'sumo-kbforum-post',
+            'source': 'sumo',
+            'extra': {
+                'type': 'kbforum-post',
+                'locale': self.thread.document.locale,
+                'thread': self.thread.id,
+                'id': self.id,
+                'slug': self.thread.document.slug,
+            },
+        })

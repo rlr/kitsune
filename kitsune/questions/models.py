@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 import time
@@ -913,6 +914,23 @@ class Answer(ModelBase):
             images = list(self.images.all())
             cache.add(cache_key, images, CACHE_TIMEOUT)
         return images
+
+    def to_baloo(self):
+        return json.dumps({
+            'email': self.creator.email,
+            'datetime': self.created.isoformat(),
+            'canonical': 'https://support.mozilla.org' + self.get_absolute_url(),
+            'type': 'sumo-answer',
+            'source': 'sumo',
+            'extra': {
+                'type': 'answer',
+                'locale': self.question.locale,
+                'question': self.question.id,
+                'id': self.id,
+                'product': self.question.products.all()[:1].get().title,
+                'topic': self.question.topics.all()[:1].get().title,
+            },
+        })
 
 
 def answer_connector(sender, instance, created, **kw):

@@ -1,4 +1,5 @@
 import datetime
+import json
 import time
 
 from django.db import models
@@ -360,6 +361,22 @@ class Post(ModelBase):
     @property
     def content_parsed(self):
         return wiki_to_html(self.content)
+
+    def to_baloo(self):
+        return json.dumps({
+            'email': self.author.email,
+            'datetime': self.created.isoformat(),
+            'canonical': 'https://support.mozilla.org' + self.get_absolute_url(),
+            'type': 'sumo-forum-post',
+            'source': 'sumo',
+            'extra': {
+                'type': 'forum-post',
+                'locale': 'en-US',
+                'thread': self.thread.id,
+                'id': self.id,
+                'slug': self.thread.forum.slug,
+            },
+        })
 
 
 register_for_indexing('forums', Post, instance_to_indexee=lambda p: p.thread)
