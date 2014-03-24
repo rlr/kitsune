@@ -104,6 +104,19 @@ class Profile(ModelBase):
         self.irc_handle = ''
         self.city = ''
 
+    def to_baloo(self):
+        return {
+            'email': self.user.email,
+            'datetime': self.user.date_joined.isoformat(),
+            'canonical': 'https://support.mozilla.org' + self.get_absolute_url(),
+            'type': 'sumo-register',
+            'source': 'sumo',
+            'extra': {
+                'type': 'register',
+                'id': self.user.id,
+            },
+        }
+
 
 class Setting(ModelBase):
     """User specific value per setting"""

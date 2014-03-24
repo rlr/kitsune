@@ -1,4 +1,3 @@
-import json
 import logging
 import re
 import time
@@ -916,7 +915,15 @@ class Answer(ModelBase):
         return images
 
     def to_baloo(self):
-        return json.dumps({
+        try:
+            product = self.question.products.all()[:1].get().title
+        except:
+            product = ''
+        try:
+            topic = self.question.topics.all()[:1].get().title
+        except:
+            topic = ''
+        return {
             'email': self.creator.email,
             'datetime': self.created.isoformat(),
             'canonical': 'https://support.mozilla.org' + self.get_absolute_url(),
@@ -927,10 +934,10 @@ class Answer(ModelBase):
                 'locale': self.question.locale,
                 'question': self.question.id,
                 'id': self.id,
-                'product': self.question.products.all()[:1].get().title,
-                'topic': self.question.topics.all()[:1].get().title,
+                'product': product,
+                'topic': topic,
             },
-        })
+        }
 
 
 def answer_connector(sender, instance, created, **kw):

@@ -1,4 +1,3 @@
-import json
 import logging
 import time
 from datetime import datetime, timedelta
@@ -1043,7 +1042,7 @@ class Revision(ModelBase):
             return None
 
     def to_baloo(self):
-        return json.dumps({
+        return {
             'email': self.creator.email,
             'datetime': self.created.isoformat(),
             'canonical': 'https://support.mozilla.org' + self.get_absolute_url(),
@@ -1056,7 +1055,7 @@ class Revision(ModelBase):
                 'id': self.id,
                 'slug': self.document.slug,
             },
-        })
+        }
 
 
 class HelpfulVote(ModelBase):

@@ -1,5 +1,4 @@
 import datetime
-import json
 
 from django.contrib.auth.models import User
 from django.db import models
@@ -155,7 +154,7 @@ class Post(ModelBase):
         return wiki_to_html(self.content)
 
     def to_baloo(self):
-        return json.dumps({
+        return {
             'email': self.creator.email,
             'datetime': self.created.isoformat(),
             'canonical': 'https://support.mozilla.org' + self.get_absolute_url(),
@@ -168,4 +167,4 @@ class Post(ModelBase):
                 'id': self.id,
                 'slug': self.thread.document.slug,
             },
-        })
+        }
